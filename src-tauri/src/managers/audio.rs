@@ -1,8 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rubato::{FftFixedIn, Resampler};
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
-
-use samplerate::{convert, ConverterType};
 
 #[derive(Clone, Debug)]
 pub enum RecordingState {
@@ -16,6 +15,7 @@ pub struct AudioRecordingManager {
     buffer: Arc<Mutex<Vec<f32>>>,
     channels: u16,
     sample_rate: u32,
+    resampler: Arc<Mutex<FftFixedIn<f32>>>,
 }
 
 impl AudioRecordingManager {
@@ -27,22 +27,30 @@ impl AudioRecordingManager {
 
         let config = device.default_input_config()?;
 
-        // Log the audio configuration details
-        println!("Sample Format: {:?}", config.sample_format());
-        println!("Channel Count: {}", config.channels());
-        println!("Sample Rate: {} Hz", config.sample_rate().0);
-        println!("Buffer Size: {:?}", config.buffer_size());
-
         let channels = config.channels();
         let sample_rate = config.sample_rate().0;
 
+        // Configure the resampler with more flexible parameters
+        let resampler = FftFixedIn::new(
+            sample_rate as usize,
+            16000,
+            1024,
+            2,
+            1, // Match input channels
+        )?;
+
         let state = Arc::new(Mutex::new(RecordingState::Idle));
         let buffer = Arc::new(Mutex::new(Vec::new()));
+        let resampler = Arc::new(Mutex::new(resampler));
 
         let state_clone = Arc::clone(&state);
         let buffer_clone = Arc::clone(&buffer);
+        let resampler_clone = Arc::clone(&resampler);
 
-        // Create and start stream in a separate thread
+        // Create a temporary buffer to accumulate samples
+        let temp_buffer = Arc::new(Mutex::new(Vec::new()));
+        let temp_buffer_clone = Arc::clone(&temp_buffer);
+
         std::thread::spawn(move || {
             let stream = match config.sample_format() {
                 cpal::SampleFormat::F32 => device.build_input_stream(
@@ -50,8 +58,29 @@ impl AudioRecordingManager {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         let state_guard = state_clone.lock().unwrap();
                         if let RecordingState::Recording { .. } = *state_guard {
-                            let mut buffer = buffer_clone.lock().unwrap();
-                            buffer.extend_from_slice(data);
+                            let mut temp_buffer = temp_buffer_clone.lock().unwrap();
+                            temp_buffer.extend_from_slice(data);
+
+                            // Process when we have enough samples
+                            if temp_buffer.len() >= 1024 {
+                                // Convert input data to the format expected by Rubato
+                                let mut chunks = Vec::new();
+                                for chunk in temp_buffer.chunks(1024) {
+                                    chunks.push(chunk.to_vec());
+                                }
+                                let input_frames = vec![chunks.remove(0)]; // Take the first complete chunk
+
+                                // Process the audio chunk
+                                let mut resampler = resampler_clone.lock().unwrap();
+                                if let Ok(resampled) = resampler.process(&input_frames, None) {
+                                    // Store the resampled audio
+                                    let mut buffer = buffer_clone.lock().unwrap();
+                                    buffer.extend_from_slice(&resampled[0]);
+                                }
+
+                                // Keep remaining samples
+                                *temp_buffer = temp_buffer.split_off(1024);
+                            }
                         }
                     },
                     |err| eprintln!("Error in stream: {}", err),
@@ -62,8 +91,6 @@ impl AudioRecordingManager {
             .unwrap();
 
             stream.play().unwrap();
-
-            // Keep the stream alive
             std::thread::park();
         });
 
@@ -72,6 +99,7 @@ impl AudioRecordingManager {
             buffer,
             channels,
             sample_rate,
+            resampler,
         })
     }
 
@@ -113,21 +141,7 @@ impl AudioRecordingManager {
                 println!("Stopped recording for binding {}", binding_id);
 
                 let mut buffer = self.buffer.lock().unwrap();
-                let mut toResample: Vec<f32> = buffer.drain(..).collect();
-
-                let start = std::time::Instant::now();
-                let resampled = convert(
-                    self.sample_rate,
-                    16000,
-                    1,
-                    ConverterType::SincBestQuality,
-                    &toResample,
-                )
-                .unwrap();
-                let duration = start.elapsed();
-                println!("Resampling took: {:?}", duration);
-
-                Some(resampled)
+                Some(buffer.drain(..).collect())
             }
             _ => {
                 println!("Cannot stop recording: not recording or wrong binding");

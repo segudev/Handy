@@ -33,6 +33,12 @@ impl TranscriptionManager {
         let mut result = String::new();
         println!("Audio vector length: {}", audio.len());
 
+        if (audio.len() == 0) {
+            println!("Empty audio vector");
+            // TODO error
+            return Ok(result);
+        }
+
         let mut state = self.state.lock().unwrap();
         // Initialize parameters
         let mut params = FullParams::new(SamplingStrategy::default());
