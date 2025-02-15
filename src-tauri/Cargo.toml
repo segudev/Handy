@@ -26,7 +26,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-macos-permissions = "2.0.4"
 rdev = { git = "https://github.com/rustdesk-org/rdev" }
 cpal = "0.15.3"
-whisper-rs = { version = "0.13.2" }
+whisper-rs = { version = "0.13.2", features = ["whisper-cpp-log"] }
 anyhow = "1.0.95"
 rubato = "0.16.1"
 samplerate = "0.2.4"
