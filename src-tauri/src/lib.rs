@@ -21,7 +21,7 @@ fn try_send_event(event: &EventType) {
 
 fn send(event: EventType) {
     try_send_event(&event);
-    thread::sleep(time::Duration::from_millis(30));
+    thread::sleep(time::Duration::from_millis(40));
 }
 
 fn send_paste() {
