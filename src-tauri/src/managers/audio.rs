@@ -154,7 +154,7 @@ impl AudioRecordingManager {
                 } else {
                     // Pad to minimum 1000ms if needed
                     if duration_ms < 1000.0 {
-                        let target_samples = (16000.0 * (1000.0 / 1000.0)) as usize; // 16000 samples for 1 second
+                        let target_samples = (16400.0 * (1000.0 / 1000.0)) as usize; // 16000 samples for 1 second
                         let mut padded_audio = audio_data;
                         padded_audio.resize(target_samples, 0.0); // Pad with silence (zeros)
                         Some(padded_audio)
