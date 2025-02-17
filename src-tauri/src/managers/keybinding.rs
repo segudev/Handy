@@ -1,35 +1,38 @@
-// First, let's define some types for our audio recording functionality
 use super::audio::AudioRecordingManager;
 use super::transcription::TranscriptionManager;
 use rdev::EventType;
+use rig::agent::Agent;
+use rig::providers::anthropic;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 type KeySet = HashSet<rdev::Key>;
 
-// Now let's modify the KeyBinding structure to work with our new system
 #[derive(Clone)]
 pub struct BindingContext {
     pub recording_manager: Arc<AudioRecordingManager>,
     pub transcription_manager: Arc<TranscriptionManager>,
-    // Add other managers here as needed
-    // pub transcription_manager: Arc<TranscriptionManager>,
-    // pub llm_manager: Arc<LLMManager>,
+    pub anthropic: Arc<anthropic::Client>,
+    pub app_handle: tauri::AppHandle,
 }
 
 pub struct KeyBinding {
     id: String,
     keys: KeySet,
-    on_press: Box<dyn Fn(&BindingContext) + Send + 'static>,
-    on_release: Box<dyn Fn(&BindingContext) + Send + 'static>,
+    on_press: Box<
+        dyn Fn(&BindingContext) -> Option<tauri::async_runtime::JoinHandle<()>> + Send + 'static,
+    >,
+    on_release: Box<
+        dyn Fn(&BindingContext) -> Option<tauri::async_runtime::JoinHandle<()>> + Send + 'static,
+    >,
     currently_pressed: Arc<Mutex<KeySet>>,
 }
 
 impl KeyBinding {
     fn new<F, G>(id: String, keys: Vec<rdev::Key>, on_press: F, on_release: G) -> Self
     where
-        F: Fn(&BindingContext) + Send + 'static,
-        G: Fn(&BindingContext) + Send + 'static,
+        F: Fn(&BindingContext) -> Option<tauri::async_runtime::JoinHandle<()>> + Send + 'static,
+        G: Fn(&BindingContext) -> Option<tauri::async_runtime::JoinHandle<()>> + Send + 'static,
     {
         Self {
             id,
@@ -41,22 +44,39 @@ impl KeyBinding {
     }
 
     fn handle_event(&self, key: rdev::Key, is_press: bool, context: &BindingContext) -> bool {
-        if !self.keys.contains(&key) {
-            return false;
-        }
-
         let mut pressed = self.currently_pressed.lock().unwrap();
+
         if is_press {
+            if !self.keys.contains(&key) {
+                return false; // Ignore keys that aren't part of this binding
+            }
+
+            if pressed.contains(&key) {
+                return false;
+            }
+
             pressed.insert(key);
             if pressed.len() == self.keys.len() && pressed.is_subset(&self.keys) {
-                (self.on_press)(context);
+                let _ = (self.on_press)(context);
                 return true;
             }
         } else {
-            pressed.remove(&key);
-            if pressed.len() == self.keys.len() - 1 {
-                (self.on_release)(context);
-                return true;
+            // Release event
+            if !self.keys.contains(&key) {
+                return false;
+            }
+
+            if pressed.remove(&key) {
+                if pressed.len() == self.keys.len() - 1 {
+                    let _ = (self.on_release)(context);
+
+                    // Clear the currently_pressed set if all keys are released
+                    if pressed.is_empty() {
+                        pressed.clear();
+                    }
+
+                    return true;
+                }
             }
         }
         false
@@ -72,20 +92,24 @@ impl KeyBindingManager {
     pub fn new(
         recording_manager: Arc<AudioRecordingManager>,
         transcription_manager: Arc<TranscriptionManager>,
+        anthropic: Arc<anthropic::Client>,
+        app_handle: tauri::AppHandle,
     ) -> Self {
         Self {
             bindings: Vec::new(),
             context: BindingContext {
                 recording_manager,
                 transcription_manager,
+                anthropic,
+                app_handle,
             },
         }
     }
 
     pub fn register<F, G>(&mut self, id: String, keys: Vec<rdev::Key>, on_press: F, on_release: G)
     where
-        F: Fn(&BindingContext) + Send + 'static,
-        G: Fn(&BindingContext) + Send + 'static,
+        F: Fn(&BindingContext) -> Option<tauri::async_runtime::JoinHandle<()>> + Send + 'static,
+        G: Fn(&BindingContext) -> Option<tauri::async_runtime::JoinHandle<()>> + Send + 'static,
     {
         self.bindings
             .push(KeyBinding::new(id, keys, on_press, on_release));
@@ -94,8 +118,12 @@ impl KeyBindingManager {
     pub fn handle_event(&self, event: &rdev::Event) {
         if let EventType::KeyPress(key) | EventType::KeyRelease(key) = event.event_type {
             let is_press = matches!(event.event_type, EventType::KeyPress(_));
+
+            // Only process the first binding that successfully handles the event
             for binding in &self.bindings {
-                binding.handle_event(key, is_press, &self.context);
+                if binding.handle_event(key, is_press, &self.context) {
+                    break; // Exit after first successful handling
+                }
             }
         }
     }
