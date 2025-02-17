@@ -9,6 +9,7 @@ use rig::streaming::StreamingChoice;
 use rig::{completion::Prompt, providers::anthropic};
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
+use tauri::RunEvent;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -270,6 +271,13 @@ pub fn run() {
                 .unwrap();
             });
             Ok(())
+        })
+        .on_window_event(|app, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                app.hide().unwrap();
+                api.prevent_close();
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![])
         .run(tauri::generate_context!())
