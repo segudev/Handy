@@ -1982,6 +1982,7 @@ dependencies = [
  "tauri-plugin-macos-permissions",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "tokio",
  "whisper-rs",
 ]
 

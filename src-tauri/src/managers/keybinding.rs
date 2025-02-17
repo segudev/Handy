@@ -13,6 +13,7 @@ pub struct BindingContext {
     pub recording_manager: Arc<AudioRecordingManager>,
     pub transcription_manager: Arc<TranscriptionManager>,
     pub sonnet: Arc<Agent<anthropic::completion::CompletionModel>>,
+    pub app_handle: tauri::AppHandle,
 }
 
 pub struct KeyBinding {
@@ -92,6 +93,7 @@ impl KeyBindingManager {
         recording_manager: Arc<AudioRecordingManager>,
         transcription_manager: Arc<TranscriptionManager>,
         sonnet: Arc<Agent<anthropic::completion::CompletionModel>>,
+        app_handle: tauri::AppHandle,
     ) -> Self {
         Self {
             bindings: Vec::new(),
@@ -99,6 +101,7 @@ impl KeyBindingManager {
                 recording_manager,
                 transcription_manager,
                 sonnet,
+                app_handle,
             },
         }
     }
