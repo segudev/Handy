@@ -12,7 +12,7 @@ type KeySet = HashSet<rdev::Key>;
 pub struct BindingContext {
     pub recording_manager: Arc<AudioRecordingManager>,
     pub transcription_manager: Arc<TranscriptionManager>,
-    pub sonnet: Arc<Agent<anthropic::completion::CompletionModel>>,
+    pub anthropic: Arc<anthropic::Client>,
     pub app_handle: tauri::AppHandle,
 }
 
@@ -92,7 +92,7 @@ impl KeyBindingManager {
     pub fn new(
         recording_manager: Arc<AudioRecordingManager>,
         transcription_manager: Arc<TranscriptionManager>,
-        sonnet: Arc<Agent<anthropic::completion::CompletionModel>>,
+        anthropic: Arc<anthropic::Client>,
         app_handle: tauri::AppHandle,
     ) -> Self {
         Self {
@@ -100,7 +100,7 @@ impl KeyBindingManager {
             context: BindingContext {
                 recording_manager,
                 transcription_manager,
-                sonnet,
+                anthropic,
                 app_handle,
             },
         }

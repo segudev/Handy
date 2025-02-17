@@ -5,6 +5,7 @@ use managers::keybinding::KeyBindingManager;
 use managers::transcription::TranscriptionManager;
 use managers::{audio::AudioRecordingManager, transcription};
 use rdev::{simulate, EventType, Key, SimulateError};
+use rig::streaming::StreamingChoice;
 use rig::{completion::Prompt, providers::anthropic};
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
@@ -45,7 +46,25 @@ fn send_paste() {
     ]);
 
     // Additional delay after the complete combination
-    // thread::sleep(time::Duration::from_millis(50));
+    thread::sleep(time::Duration::from_millis(20));
+}
+
+fn send_copy() {
+    // Determine the modifier key based on the OS
+    #[cfg(target_os = "macos")]
+    let modifier_key = Key::MetaLeft; // Command key on macOS
+    #[cfg(not(target_os = "macos"))]
+    let modifier_key = Key::ControlLeft; // Control key on other systems
+
+    // Press both keys
+    send(EventType::KeyPress(modifier_key));
+    send(EventType::KeyPress(Key::KeyC));
+
+    // Release both keys simultaneously
+    send_multiple(&[
+        EventType::KeyRelease(Key::KeyC),
+        EventType::KeyRelease(modifier_key),
+    ]);
 }
 
 fn paste(text: String, app_handle: tauri::AppHandle) {
@@ -70,6 +89,9 @@ fn get_highlighted_text(app_handle: tauri::AppHandle) -> String {
     // empty the clipboard
     clipboard.write_text("").unwrap();
 
+    // issue 'copy'
+    send_copy();
+
     // get the highlighted text
     let highlighted_text = clipboard.read_text().unwrap_or_default();
 
@@ -78,6 +100,28 @@ fn get_highlighted_text(app_handle: tauri::AppHandle) -> String {
 
     highlighted_text
 }
+
+const INSTRUCT_SYS: &str = r#"
+You are a helpful assistant. You will receive voice transcriptions
+from a user that may include both a command/question and some
+minimal context to help you respond appropriately.
+
+For example, the user might say:
+- A direct question with no context: "What is the capital of France?"
+- A command with context: "get commit message I fixed the bug in the login system"
+"#;
+
+const CODE_SYS: &str = r#"
+You are a code-only assistant. I will provide you with selected text or clipboard content along with instructions. If I request code, output only the exact code implementation. If I request a terminal command, provide only the valid command syntax. Never use markdown, explanations, or additional text.
+
+    When I share selected text or clipboard content, use that as context for generating your response. The output should be ready to copy and paste directly, with no formatting or commentary. For terminal commands, ensure they are valid for the specified environment. Note for terminal commands, I typically use lowercase instead of uppercase. You may also be given them directly, but need to translate them into a way that can actually be executed in the terminal because the transcription you are given might be poor.
+
+    Output only:
+    - Raw code implementation when code is requested
+    - Terminal command syntax when a command is requested
+    - No markdown, no backticks, no explanations
+    - No additional text or descriptions
+"#;
 
 fn register_bindings(manager: &mut KeyBindingManager) {
     manager.register(
@@ -121,10 +165,20 @@ fn register_bindings(manager: &mut KeyBindingManager) {
                 if let Some(samples) = ctx.recording_manager.stop_recording("shift-alt") {
                     if let Ok(transcription) = ctx.transcription_manager.transcribe(samples) {
                         println!("Transcription: {}", transcription);
-                        match ctx.sonnet.prompt(transcription).await {
+
+                        let instruct = ctx
+                            .anthropic
+                            .agent(anthropic::CLAUDE_3_5_SONNET)
+                            .preamble(INSTRUCT_SYS)
+                            .temperature(0.5)
+                            .build();
+
+                        let highlighted_text = get_highlighted_text(ctx.app_handle.clone());
+                        println!("Highlighted Text: {}", highlighted_text);
+                        let prompt = format!("{}\n\ncontext:{}\n", transcription, highlighted_text);
+
+                        match instruct.prompt(prompt).await {
                             Ok(response) => {
-                                let highlighted_text = get_highlighted_text(ctx.app_handle.clone());
-                                println!("Highlighted Text: {}", highlighted_text);
                                 println!("Sonnet response: {}", response);
                                 paste(response, ctx.app_handle.clone());
                             }
@@ -153,7 +207,25 @@ fn register_bindings(manager: &mut KeyBindingManager) {
                     match ctx.transcription_manager.transcribe(samples) {
                         Ok(transcription) => {
                             println!("Transcription: {}", transcription);
-                            // Call LLM for code
+
+                            let code = ctx
+                                .anthropic
+                                .agent(anthropic::CLAUDE_3_5_SONNET)
+                                .preamble(CODE_SYS)
+                                .temperature(0.5)
+                                .build();
+
+                            let highlighted_text = get_highlighted_text(ctx.app_handle.clone());
+                            let prompt =
+                                format!("{}\n\ncontext:{}\n", transcription, highlighted_text);
+
+                            match code.prompt(prompt).await {
+                                Ok(response) => {
+                                    println!("Sonnet response: {}", response);
+                                    paste(response, ctx.app_handle.clone());
+                                }
+                                Err(err) => println!("Sonnet error: {}", err),
+                            }
                         }
                         Err(err) => println!("Transcription error: {}", err),
                     }
@@ -174,14 +246,7 @@ pub fn run() {
     let transcription_manager =
         Arc::new(TranscriptionManager::new().expect("Failed to initialize transcription manager"));
     // let transcription_manager = Arc::new(TranscriptionManager::new());
-    let claude_client = anthropic::Client::from_env();
-    let sonnet: Arc<rig::agent::Agent<anthropic::completion::CompletionModel>> = Arc::new(
-        claude_client
-            .agent(anthropic::CLAUDE_3_5_SONNET)
-            .preamble("Be precise and concise.")
-            .temperature(0.5)
-            .build(),
-    );
+    let claude_client = Arc::new(anthropic::Client::from_env());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -198,7 +263,7 @@ pub fn run() {
             let manager = Arc::new(Mutex::new(KeyBindingManager::new(
                 recording_manager.clone(),
                 transcription_manager.clone(),
-                sonnet.clone(),
+                claude_client.clone(),
                 app_handle.clone(),
             )));
 
