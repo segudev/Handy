@@ -3,7 +3,7 @@ use rubato::{FftFixedIn, Resampler};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
-use vad_rs::{Vad, VadStatus};
+use vad_rs::Vad;
 
 #[derive(Clone, Debug)]
 pub enum RecordingState {
@@ -81,7 +81,7 @@ impl AudioRecordingManager {
                                         if let Ok(mut vad) = vad_clone.lock() {
                                             // println!("VAD lock acquired");
                                             match vad.compute(&chunk) {
-                                                Ok(mut result) => {
+                                                Ok(result) => {
                                                     if result.prob > 0.15 {
                                                         let mut buffer =
                                                             buffer_clone.lock().unwrap();

@@ -5,6 +5,7 @@ import {
   checkAccessibilityPermissions,
   requestAccessibilityPermissions,
 } from "tauri-plugin-macos-permissions-api";
+import { register } from "@tauri-apps/plugin-global-shortcut";
 
 function App() {
   const [hasAccessibility, setHasAccessibility] = useState(false);

@@ -1,7 +1,6 @@
 use super::audio::AudioRecordingManager;
 use super::transcription::TranscriptionManager;
 use rdev::{EventType, Key};
-use rig::providers::anthropic;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
