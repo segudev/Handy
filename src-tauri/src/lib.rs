@@ -89,36 +89,40 @@ pub fn run() {
                 .expect("Failed to initialize transcription manager"),
             );
 
+            // Add managers to Tauri's managed state
+            app.manage(recording_manager.clone());
+            app.manage(transcription_manager.clone());
+
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
-
-                // Clone resources needed for the global shortcut handler
-                let rm_for_shortcut_handler = recording_manager.clone();
-                let tm_for_shortcut_handler = transcription_manager.clone();
 
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_shortcuts(["alt+space"])? // Register "alt+space"
                         .with_handler(move |app_handle_from_plugin, shortcut, event| {
-                            // Clone Arcs for potential async tasks to move ownership
-                            let recording_manager = rm_for_shortcut_handler.clone();
-                            let transcription_manager = tm_for_shortcut_handler.clone();
+                            // Retrieve managers from state
+                            let recording_manager_state =
+                                app_handle_from_plugin.state::<Arc<AudioRecordingManager>>();
+                            let transcription_manager_state =
+                                app_handle_from_plugin.state::<Arc<TranscriptionManager>>();
                             let app_handle_for_async_tasks = app_handle_from_plugin.clone();
 
                             if shortcut.matches(Modifiers::ALT, Code::Space) {
                                 if event.state == ShortcutState::Pressed {
                                     info!("Alt+Space pressed! (Global Shortcut)");
                                     // Use the "alt-space" identifier for consistency
-                                    recording_manager.try_start_recording("alt-space");
+                                    recording_manager_state.try_start_recording("alt-space");
                                 } else if event.state == ShortcutState::Released {
                                     info!("Alt+Space released! (Global Shortcut)");
+                                    // Clone Arcs for the async block
+                                    let rm_clone = recording_manager_state.inner().clone();
+                                    let tm_clone = transcription_manager_state.inner().clone();
+
                                     tauri::async_runtime::spawn(async move {
-                                        // recording_manager, transcription_manager, and app_handle_for_async_tasks are moved into this async block
-                                        if let Some(samples) =
-                                            recording_manager.stop_recording("alt-space")
+                                        if let Some(samples) = rm_clone.stop_recording("alt-space")
                                         {
-                                            match transcription_manager.transcribe(samples) {
+                                            match tm_clone.transcribe(samples) {
                                                 // Not .await, as transcribe is synchronous
                                                 Ok(transcription) => {
                                                     println!(
