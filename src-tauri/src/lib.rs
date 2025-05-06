@@ -4,9 +4,10 @@ use log::info;
 use managers::audio::AudioRecordingManager;
 use managers::transcription::TranscriptionManager;
 use rdev::{simulate, EventType, Key, SimulateError};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{thread, time};
-use tauri::{Emitter, Manager};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -66,6 +67,8 @@ pub fn run() {
         .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            let tray = TrayIconBuilder::new().build(app)?;
+
             let vad_path = app.path().resolve(
                 "resources/silero_vad_v4.onnx",
                 tauri::path::BaseDirectory::Resource,
