@@ -37,9 +37,6 @@ export const KeyboardShortcuts: React.FC = () => {
                 <kbd className="px-2 py-1 text-sm font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded">
                   {key}
                 </kbd>
-                {index < shortcut.keys.length - 1 && (
-                  <span className="text-gray-500">+</span>
-                )}
               </React.Fragment>
             ))}
           </div>
