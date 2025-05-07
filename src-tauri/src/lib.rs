@@ -1,12 +1,28 @@
 mod managers;
+mod settings;
 mod shortcut;
+mod utils;
 
 use managers::audio::AudioRecordingManager;
 use managers::transcription::TranscriptionManager;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
+
+pub struct AppState {
+    pub active_bindings: Mutex<HashMap<String, String>>,
+}
+
+impl AppState {
+    // Convenience method to create a new AppState
+    fn new() -> Self {
+        AppState {
+            active_bindings: Mutex::new(HashMap::new()),
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +37,8 @@ pub fn run() {
         .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(AppState::new())
         .setup(move |app| {
             let _tray = TrayIconBuilder::new().build(app)?;
 
@@ -64,7 +82,7 @@ pub fn run() {
             }
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![shortcut::set_binding])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

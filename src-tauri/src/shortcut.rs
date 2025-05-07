@@ -1,99 +1,20 @@
 use std::sync::Arc;
-use std::thread;
-use std::time;
 
-use rdev::{simulate, EventType, Key, SimulateError};
-use serde::Deserialize;
-use serde::Serialize;
 use tauri::App;
 use tauri::AppHandle;
 use tauri::Manager;
-use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri::Runtime;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
-use tauri_plugin_store::{JsonValue, StoreExt};
+use tauri_plugin_store::StoreExt;
 
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::transcription::TranscriptionManager;
-
-#[derive(Serialize, Deserialize, Debug, Clone)] // Clone is useful
-pub struct ShortcutBinding {
-    id: String,
-    name: String,
-    description: String,
-    default_binding: String,
-    current_binding: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct AppSettings {
-    bindings: Vec<ShortcutBinding>,
-}
-
-fn get_default_settings() -> AppSettings {
-    AppSettings {
-        bindings: vec![
-            ShortcutBinding {
-                id: "transcribe".to_string(),
-                name: "Transcribe".to_string(),
-                description: "Converts your speech into text.".to_string(),
-                default_binding: "alt+space".to_string(),
-                current_binding: "alt+space".to_string(),
-            },
-            ShortcutBinding {
-                id: "test".to_string(),
-                name: "Test".to_string(),
-                description: "This is a test binding.".to_string(),
-                default_binding: "ctrl+d".to_string(),
-                current_binding: "ctrl+d".to_string(),
-            },
-        ],
-    }
-}
-
-fn try_send_event(event: &EventType) {
-    if let Err(SimulateError) = simulate(event) {
-        println!("We could not send {:?}", event);
-    }
-}
-
-fn send(event: EventType) {
-    try_send_event(&event);
-    thread::sleep(time::Duration::from_millis(60));
-}
-
-fn send_paste() {
-    // Determine the modifier key based on the OS
-    #[cfg(target_os = "macos")]
-    let modifier_key = Key::MetaLeft; // Command key on macOS
-    #[cfg(not(target_os = "macos"))]
-    let modifier_key = Key::ControlLeft; // Control key on other systems
-
-    // Press both keys
-    send(EventType::KeyPress(modifier_key));
-    send(EventType::KeyPress(Key::KeyV));
-
-    // Release both keys
-    send(EventType::KeyRelease(Key::KeyV));
-    send(EventType::KeyRelease(modifier_key));
-}
-
-fn paste(text: String, app_handle: AppHandle) {
-    let clipboard = app_handle.clipboard();
-
-    // get the current clipboard content
-    let clipboard_content = clipboard.read_text().unwrap_or_default();
-
-    clipboard.write_text(&text).unwrap();
-    send_paste();
-
-    // restore the clipboard
-    clipboard.write_text(&clipboard_content).unwrap();
-}
-
-// const HANDY_TAURI_STORE: &str = "handy_tauri_store";
-
-// let mut shortcut_map: HashMap<String, fn()> = HashMap::new();
+use crate::settings;
+use crate::settings::AppSettings;
+use crate::settings::ShortcutBinding;
+use crate::utils;
+use crate::AppState;
 
 fn transcribe_pressed(app: &AppHandle) {
     let rm = app.state::<Arc<AudioRecordingManager>>();
@@ -111,7 +32,7 @@ fn transcribe_released(app: &AppHandle) {
                 // Not .await, as transcribe is synchronous
                 Ok(transcription) => {
                     println!("Global Shortcut Transcription: {}", transcription);
-                    paste(transcription, ah);
+                    utils::paste(transcription, ah);
                 }
                 Err(err) => println!("Global Shortcut Transcription error: {}", err),
             }
@@ -120,38 +41,73 @@ fn transcribe_released(app: &AppHandle) {
 }
 
 pub fn init_shortcuts(app: &App) {
-    // init store
+    // Initialize store
     let kb_store = app
         .store("settings_store.json")
         .expect("Failed to initialize store");
 
-    if let Some(bindings) = kb_store.get("settings") {
-        // print the bindings that exist
-        println!("Bindings: {:?}", bindings);
+    // Get or create settings
+    let settings = if let Some(settings_value) = kb_store.get("settings") {
+        // Parse the entire settings object
+        match serde_json::from_value::<AppSettings>(settings_value) {
+            Ok(settings) => {
+                println!("Found existing settings: {:?}", settings);
+
+                settings
+            }
+            Err(e) => {
+                println!("Failed to parse settings: {}", e);
+                // Fall back to default settings if parsing fails
+                let default_settings = settings::get_default_settings();
+
+                // Store the default settings
+                kb_store.set("settings", serde_json::to_value(&default_settings).unwrap());
+
+                default_settings
+            }
+        }
     } else {
-        kb_store.set(
-            "settings",
-            serde_json::to_value(&get_default_settings()).unwrap(),
-        );
-        // create the default bindings
-    }
+        // Create default settings
+        let default_settings = settings::get_default_settings();
 
-    // load state from store
+        // Store the settings
+        kb_store.set("settings", serde_json::to_value(&default_settings).unwrap());
 
-    _register_shortcut_upon_start(
-        app,
-        "alt+space"
-            .parse::<Shortcut>()
-            .expect("Failed to parse shortcut"),
-    );
+        default_settings
+    };
+
+    // Register shortcuts with the bindings from settings
+    _register_shortcuts(app, settings.bindings);
 }
 
-fn _register_shortcut_upon_start(app: &App, shortcut: Shortcut) {
-    // Initialize global shortcut and set its handler
-    app.handle()
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |handler_app, scut, event| {
+#[tauri::command]
+pub fn set_binding(app: AppHandle, id: String, binding: String) {
+    let app_state = app.state::<AppState>();
+    let mut active_bindings = app_state.active_bindings.lock().unwrap();
+    let old_binding_str = active_bindings.get(&id).cloned(); // Clone to avoid borrowing issues
+
+    match binding.parse::<Shortcut>() {
+        Ok(shortcut) => {
+            println!("Shortcut '{}' is valid", shortcut);
+            // unregister the existing binding
+            if let Some(old_binding_str) = old_binding_str {
+                match old_binding_str.parse::<Shortcut>() {
+                    Ok(old_binding) => {
+                        app.global_shortcut()
+                            .unregister(old_binding)
+                            .expect("Failed to unregister shortcut");
+                    }
+                    Err(e) => {
+                        eprintln!("Error parsing old shortcut '{}': {:?}", old_binding_str, e);
+                    }
+                }
+            } else {
+                println!("No existing shortcut to unregister");
+            }
+
+            // register the new binding
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |handler_app, scut, event| {
                     if scut == &shortcut {
                         println!("Global Shortcut pressed! {}", scut.into_string());
                         if event.state == ShortcutState::Pressed {
@@ -161,8 +117,66 @@ fn _register_shortcut_upon_start(app: &App, shortcut: Shortcut) {
                         }
                     }
                 })
-                .build(),
-        )
-        .unwrap();
-    app.global_shortcut().register(shortcut).unwrap(); // Register global shortcut
+                .expect("couldnt register shortcut");
+
+            // TODO error handling?
+            active_bindings.insert(id, binding);
+        }
+        Err(e) => {
+            eprintln!("Error parsing shortcut '{}': {:?}", binding, e);
+        }
+    }
+}
+
+fn _register_shortcuts(app: &App, bindings: Vec<ShortcutBinding>) {
+    // get bindings from state
+    let app_state = app.state::<AppState>();
+    let mut active_bindings = app_state.active_bindings.lock().unwrap();
+
+    // iterate through bindings
+    for binding in bindings {
+        // Parse the shortcut, handling errors gracefully
+        match binding.current_binding.parse::<Shortcut>() {
+            Ok(shortcut) => {
+                // Try to register the shortcut
+                match app.global_shortcut().on_shortcut(
+                    shortcut,
+                    move |handler_app, scut, event| {
+                        if scut == &shortcut {
+                            println!("Global Shortcut pressed! {}", scut.into_string());
+                            if event.state == ShortcutState::Pressed {
+                                transcribe_pressed(handler_app);
+                            } else if event.state == ShortcutState::Released {
+                                transcribe_released(handler_app);
+                            }
+                        }
+                    },
+                ) {
+                    Ok(_) => {
+                        // Additional actions on successful registration
+                        println!(
+                            "Successfully registered shortcut: {}",
+                            binding.current_binding
+                        );
+
+                        active_bindings.insert(binding.id, binding.current_binding);
+                    }
+                    Err(err) => {
+                        // Log registration error
+                        eprintln!(
+                            "Failed to register shortcut {}: {}",
+                            binding.current_binding, err
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                // Log parsing error
+                eprintln!(
+                    "Failed to parse shortcut {}: {}",
+                    binding.current_binding, err
+                );
+            }
+        }
+    }
 }

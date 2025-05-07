@@ -7,6 +7,7 @@ import {
 } from "tauri-plugin-macos-permissions-api";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import HandyTextLogo from "./components/icons/HandyTextLogo";
+import { invoke } from "@tauri-apps/api/core";
 
 function App() {
   const [hasAccessibility, setHasAccessibility] = useState(false);
@@ -21,6 +22,11 @@ function App() {
       }
       setHasAccessibility(hasPermissions);
     });
+
+    // invoke("set_binding", {
+    //   id: "test",
+    //   binding: "alt+d",
+    // });
   }, []);
 
   return (
