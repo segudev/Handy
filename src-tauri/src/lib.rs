@@ -82,7 +82,10 @@ pub fn run() {
             }
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![shortcut::set_binding])
+        .invoke_handler(tauri::generate_handler![
+            shortcut::change_binding,
+            shortcut::reset_binding
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

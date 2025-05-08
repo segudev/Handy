@@ -1,7 +1,9 @@
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::Arc};
+use tauri::{App, AppHandle, Runtime};
+use tauri_plugin_store::{Store, StoreExt};
 
-#[derive(Serialize, Deserialize, Debug, Clone)] // Clone is useful
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShortcutBinding {
     pub id: String,
     pub name: String,
@@ -10,28 +12,106 @@ pub struct ShortcutBinding {
     pub current_binding: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/* still handy for composing the initial JSON in the store ------------- */
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
-    pub bindings: Vec<ShortcutBinding>,
+    pub bindings: HashMap<String, ShortcutBinding>,
 }
 
+pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
+
 pub fn get_default_settings() -> AppSettings {
-    AppSettings {
-        bindings: vec![
-            ShortcutBinding {
-                id: "transcribe".to_string(),
-                name: "Transcribe".to_string(),
-                description: "Converts your speech into text.".to_string(),
-                default_binding: "alt+space".to_string(),
-                current_binding: "alt+space".to_string(),
-            },
-            ShortcutBinding {
-                id: "test".to_string(),
-                name: "Test".to_string(),
-                description: "This is a test binding.".to_string(),
-                default_binding: "ctrl+d".to_string(),
-                current_binding: "ctrl+d".to_string(),
-            },
-        ],
-    }
+    let mut bindings = HashMap::new();
+    bindings.insert(
+        "transcribe".to_string(),
+        ShortcutBinding {
+            id: "transcribe".to_string(),
+            name: "Transcribe".to_string(),
+            description: "Converts your speech into text.".to_string(),
+            default_binding: "alt+space".to_string(),
+            current_binding: "alt+space".to_string(),
+        },
+    );
+    bindings.insert(
+        "test".to_string(),
+        ShortcutBinding {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: "This is a test binding.".to_string(),
+            default_binding: "ctrl+d".to_string(),
+            current_binding: "ctrl+d".to_string(),
+        },
+    );
+
+    AppSettings { bindings }
+}
+
+pub fn load_or_create_app_settings(app: &App) -> AppSettings {
+    // Initialize store
+    let store = app
+        .store(SETTINGS_STORE_PATH)
+        .expect("Failed to initialize store");
+
+    let settings = if let Some(settings_value) = store.get("settings") {
+        // Parse the entire settings object
+        match serde_json::from_value::<AppSettings>(settings_value) {
+            Ok(settings) => {
+                println!("Found existing settings: {:?}", settings);
+
+                settings
+            }
+            Err(e) => {
+                println!("Failed to parse settings: {}", e);
+                // Fall back to default settings if parsing fails
+                let default_settings = get_default_settings();
+
+                // Store the default settings
+                store.set("settings", serde_json::to_value(&default_settings).unwrap());
+
+                default_settings
+            }
+        }
+    } else {
+        // Create default settings
+        let default_settings = get_default_settings();
+
+        // Store the settings
+        store.set("settings", serde_json::to_value(&default_settings).unwrap());
+
+        default_settings
+    };
+
+    settings
+}
+
+pub fn get_settings(app: &AppHandle) -> AppSettings {
+    let store = app
+        .store(SETTINGS_STORE_PATH)
+        .expect("Failed to initialize store");
+
+    let settings = serde_json::from_value::<AppSettings>(store.get("settings").unwrap()).unwrap();
+
+    settings
+}
+
+pub fn write_settings(app: &AppHandle, settings: AppSettings) {
+    let store = app
+        .store(SETTINGS_STORE_PATH)
+        .expect("Failed to initialize store");
+
+    store.set("settings", serde_json::to_value(&settings).unwrap());
+}
+
+pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
+    let settings = get_settings(app);
+
+    settings.bindings
+}
+
+pub fn get_stored_binding(app: &AppHandle, id: &str) -> ShortcutBinding {
+    let bindings = get_bindings(app);
+
+    let binding = bindings.get(id).unwrap().clone();
+
+    binding
 }
