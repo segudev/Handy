@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use tauri::image::Image;
 use tauri::tray::TrayIcon;
@@ -15,7 +17,17 @@ use crate::settings;
 use crate::settings::ShortcutBinding;
 use crate::utils;
 
-fn transcribe_pressed(app: &AppHandle) {
+// Action Handler Types
+pub type PressAction = fn(app: &AppHandle, shortcut_str: &str);
+pub type ReleaseAction = fn(app: &AppHandle, shortcut_str: &str);
+
+pub struct ActionSet {
+    pub press: PressAction,
+    pub release: ReleaseAction,
+}
+
+// Handler Functions
+fn transcribe_pressed_action(app: &AppHandle, _shortcut_str: &str) {
     let tray = app.state::<TrayIcon>();
     tray.set_icon(Some(
         Image::from_path(
@@ -33,7 +45,7 @@ fn transcribe_pressed(app: &AppHandle) {
     rm.try_start_recording("transcribe");
 }
 
-fn transcribe_released(app: &AppHandle) {
+fn transcribe_released_action(app: &AppHandle, _shortcut_str: &str) {
     let tray = app.state::<TrayIcon>();
     tray.set_icon(Some(
         Image::from_path(
@@ -65,12 +77,52 @@ fn transcribe_released(app: &AppHandle) {
     });
 }
 
+fn test_binding_pressed_action(app: &AppHandle, shortcut_str: &str) {
+    println!(
+        "Shortcut ID 'test': Pressed - {} (App: {})",
+        shortcut_str,
+        app.package_info().name
+    );
+}
+
+fn test_binding_released_action(app: &AppHandle, shortcut_str: &str) {
+    println!(
+        "Shortcut ID 'test': Released - {} (App: {})",
+        shortcut_str,
+        app.package_info().name
+    );
+}
+
+// Static Action Map
+pub static ACTION_MAP: Lazy<HashMap<String, ActionSet>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    map.insert(
+        "transcribe".to_string(),
+        ActionSet {
+            press: transcribe_pressed_action,
+            release: transcribe_released_action,
+        },
+    );
+    map.insert(
+        "test".to_string(),
+        ActionSet {
+            press: test_binding_pressed_action,
+            release: test_binding_released_action,
+        },
+    );
+    // --- DEVELOPER ADDS NEW ACTIONS HERE ---
+    map
+});
+
 pub fn init_shortcuts(app: &App) {
     let settings = settings::load_or_create_app_settings(app);
 
     // Register shortcuts with the bindings from settings
     for (_id, binding) in settings.bindings {
-        _register_shortcut(app.handle(), binding);
+        // Pass app.handle() which is &AppHandle
+        if let Err(e) = _register_shortcut(app.handle(), binding) {
+            eprintln!("Failed to register shortcut {}: {}", _id, e);
+        }
     }
 }
 
@@ -151,14 +203,25 @@ fn _register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), S
         Err(e) => return Err(format!("Failed to parse shortcut: {}", e)),
     };
 
+    // Clone binding.id for use in the closure
+    let binding_id_for_closure = binding.id.clone();
+
     app.global_shortcut()
         .on_shortcut(shortcut, move |handler_app, scut, event| {
             if scut == &shortcut {
-                println!("Global Shortcut pressed! {}", scut.into_string());
-                if event.state == ShortcutState::Pressed {
-                    transcribe_pressed(handler_app);
-                } else if event.state == ShortcutState::Released {
-                    transcribe_released(handler_app);
+                let shortcut_string = scut.into_string();
+
+                if let Some(action_set) = ACTION_MAP.get(&binding_id_for_closure) {
+                    if event.state == ShortcutState::Pressed {
+                        (action_set.press)(handler_app, &shortcut_string);
+                    } else if event.state == ShortcutState::Released {
+                        (action_set.release)(handler_app, &shortcut_string);
+                    }
+                } else {
+                    println!(
+                        "Warning: No action defined in ACTION_MAP for shortcut ID '{}'. Shortcut: '{}', State: {:?}",
+                        binding_id_for_closure, shortcut_string, event.state
+                    );
                 }
             }
         })

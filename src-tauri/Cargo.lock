@@ -1970,6 +1970,7 @@ dependencies = [
  "cpal",
  "env_logger",
  "log",
+ "once_cell",
  "rdev",
  "rubato",
  "serde",
