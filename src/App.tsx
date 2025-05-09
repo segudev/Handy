@@ -5,32 +5,12 @@ import {
   checkAccessibilityPermissions,
   requestAccessibilityPermissions,
 } from "tauri-plugin-macos-permissions-api";
-import { register } from "@tauri-apps/plugin-global-shortcut";
 import HandyTextLogo from "./components/icons/HandyTextLogo";
-import { invoke } from "@tauri-apps/api/core";
-// import { TrayIcon } from "@tauri-apps/api/tray";
-// import { Menu } from "@tauri-apps/api/menu";
-// import { defaultWindowIcon } from "@tauri-apps/api/app";
-
-// const menu = await Menu.new({
-//   items: [
-//     {
-//       id: "quit",
-//       text: "Quit",
-//     },
-//   ],
-// });
-
-// const options = {
-//   icon: await defaultWindowIcon(),
-//   menu,
-//   menuOnLeftClick: true,
-// };
 
 function App() {
   const [hasAccessibility, setHasAccessibility] = useState(false);
 
-  useEffect(() => {
+  const checkPermissions = () => {
     checkAccessibilityPermissions().then((hasPermissions) => {
       if (!hasPermissions) {
         requestAccessibilityPermissions().then((permissions) => {
@@ -40,27 +20,28 @@ function App() {
       }
       setHasAccessibility(hasPermissions);
     });
+  };
 
-    // TrayIcon.new(options).then((t) => {
-    //   console.log("tray init", t);
-    // });
-
-    // invoke("set_binding", {
-    //   id: "test",
-    //   binding: "alt+d",
-    // });
+  useEffect(() => {
+    checkPermissions();
   }, []);
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center pt-6 w-full">
       {!hasAccessibility && (
         <div className="bg-yellow-50 p-4 w-full">
-          <div className="flex">
+          <div className="flex justify-between items-center">
             <div className="ml-3">
               <p className="text-sm font-medium text-yellow-800">
                 Accessibility permissions are required for keyboard shortcuts.
               </p>
             </div>
+            <button
+              onClick={checkPermissions}
+              className="bg-yellow-200 hover:bg-yellow-300 text-yellow-800 font-medium py-1 px-3 rounded text-sm mr-4"
+            >
+              Recheck Permissions
+            </button>
           </div>
         </div>
       )}
