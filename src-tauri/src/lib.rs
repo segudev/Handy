@@ -1,3 +1,4 @@
+mod actions;
 mod managers;
 mod settings;
 mod shortcut;
