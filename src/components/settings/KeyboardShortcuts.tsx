@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { load } from "@tauri-apps/plugin-store";
 import {
   BindingResponseSchema,
@@ -16,6 +16,8 @@ export const KeyboardShortcuts: React.FC = () => {
   const [editingShortcutId, setEditingShortcutId] = useState<string | null>(
     null
   );
+  const [originalBinding, setOriginalBinding] = useState<string>("");
+  const shortcutRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
   useEffect(() => {
     load("settings_store.json", { autoSave: false }).then((r) => {
@@ -83,21 +85,49 @@ export const KeyboardShortcuts: React.FC = () => {
           setEditingShortcutId(null);
           setKeyPressed([]);
           setRecordedKeys([]);
+          setOriginalBinding("");
+        }
+      }
+    };
+
+    // Add click outside handler
+    const handleClickOutside = (e: MouseEvent) => {
+      const activeElement = shortcutRefs.current.get(editingShortcutId);
+      if (activeElement && !activeElement.contains(e.target as Node)) {
+        // Cancel shortcut recording and restore original value
+        if (editingShortcutId && bindings[editingShortcutId]) {
+          setBindings((prev) => ({
+            ...prev,
+            [editingShortcutId]: {
+              ...prev[editingShortcutId],
+              current_binding: originalBinding,
+            },
+          }));
+
+          // Reset states
+          setEditingShortcutId(null);
+          setKeyPressed([]);
+          setRecordedKeys([]);
+          setOriginalBinding("");
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("mousedown", handleClickOutside);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [keyPressed, recordedKeys, editingShortcutId, bindings]);
+  }, [keyPressed, recordedKeys, editingShortcutId, bindings, originalBinding]);
 
   // Start recording a new shortcut
   const startRecording = (id: string) => {
+    // Store the original binding to restore if canceled
+    setOriginalBinding(bindings[id]?.current_binding || "");
     setEditingShortcutId(id);
     setKeyPressed([]);
     setRecordedKeys([]);
@@ -108,7 +138,10 @@ export const KeyboardShortcuts: React.FC = () => {
     return recordedKeys.length > 0 ? recordedKeys.join("+") : "Press keys...";
   };
 
-  // TEXT SELECT
+  // Store references to shortcut elements
+  const setShortcutRef = (id: string, ref: HTMLDivElement | null) => {
+    shortcutRefs.current.set(id, ref);
+  };
 
   return (
     <div className="space-y-4">
@@ -123,7 +156,10 @@ export const KeyboardShortcuts: React.FC = () => {
           </div>
           <div className="flex items-center space-x-1">
             {editingShortcutId === id ? (
-              <div className="px-2 py-1 text-sm font-semibold  border border-[#FAA2CA] bg-[#FAA2CA]/30 rounded min-w-[100px] text-center">
+              <div
+                ref={(ref) => setShortcutRef(id, ref)}
+                className="px-2 py-1 text-sm font-semibold border border-[#FAA2CA] bg-[#FAA2CA]/30 rounded min-w-[100px] text-center"
+              >
                 {formatCurrentKeys()}
               </div>
             ) : (
@@ -135,7 +171,7 @@ export const KeyboardShortcuts: React.FC = () => {
               </div>
             )}
             <button
-              className="px-2 py-1 text-sm font-semibold  border  bg-[#808080]/10 hover:bg-[#FAA2CA]/10 border-gray-200 rounded"
+              className="px-2 py-1 text-sm font-semibold border bg-[#808080]/10 hover:bg-[#FAA2CA]/10 border-gray-200 rounded"
               onClick={() => {
                 invoke("reset_binding", { id }).then((b) => {
                   console.log("reset");
