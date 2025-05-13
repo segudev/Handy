@@ -39,7 +39,9 @@ fn transcribe_released_action(app: &AppHandle, _shortcut_str: &str) {
             match tm.transcribe(samples) {
                 Ok(transcription) => {
                     println!("Global Shortcut Transcription: {}", transcription);
-                    utils::paste(transcription, ah);
+                    if transcription != "" {
+                        utils::paste(transcription, ah);
+                    }
                 }
                 Err(err) => println!("Global Shortcut Transcription error: {}", err),
             }
