@@ -30,7 +30,7 @@ fn send_paste() {
     send_with_delay(EventType::KeyPress(Key::KeyV), 100);
 
     // Release both keys
-    send_with_delay(EventType::KeyRelease(Key::KeyV), 0);
+    send_with_delay(EventType::KeyRelease(Key::KeyV), 100);
     send_with_delay(EventType::KeyRelease(modifier_key), 0);
 }
 
