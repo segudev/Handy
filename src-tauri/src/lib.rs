@@ -50,8 +50,27 @@ pub fn run() {
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => {
-                        let settings_window = app.get_webview_window("main").unwrap();
-                        settings_window.show().unwrap();
+                        if let Some(settings_window) = app.get_webview_window("main") {
+                            // First, ensure the window is visible
+                            if let Err(e) = settings_window.show() {
+                                eprintln!("Failed to show window: {}", e);
+                            }
+                            // Then, bring it to the front and give it focus
+                            if let Err(e) = settings_window.set_focus() {
+                                eprintln!("Failed to focus window: {}", e);
+                            }
+                            // Optional: On macOS, ensure the app becomes active if it was an accessory
+                            #[cfg(target_os = "macos")]
+                            {
+                                if let Err(e) =
+                                    app.set_activation_policy(tauri::ActivationPolicy::Regular)
+                                {
+                                    eprintln!("Failed to set activation policy to Regular: {}", e);
+                                }
+                            }
+                        } else {
+                            eprintln!("Main window not found");
+                        }
                     }
                     "quit" => {
                         app.exit(0);
