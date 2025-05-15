@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::sync::Mutex;
+use std::thread;
 use tauri::{App, Manager};
 use whisper_rs::install_whisper_log_trampoline;
 use whisper_rs::{
@@ -7,7 +8,6 @@ use whisper_rs::{
 };
 
 pub struct TranscriptionManager {
-    context: WhisperContext,
     state: Mutex<WhisperState>,
 }
 
@@ -30,7 +30,6 @@ impl TranscriptionManager {
         let state = context.create_state().expect("failed to create state");
 
         Ok(Self {
-            context,
             state: Mutex::new(state),
         })
     }
@@ -46,6 +45,10 @@ impl TranscriptionManager {
             // TODO error
             return Ok(result);
         }
+
+        let num_threads = thread::available_parallelism()
+            .map(|count| count.get() as i32)
+            .unwrap_or(1);
 
         let mut state = self.state.lock().unwrap();
         // Initialize parameters
