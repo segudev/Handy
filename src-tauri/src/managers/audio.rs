@@ -6,6 +6,8 @@ use std::vec::Vec;
 use tauri::{App, Manager};
 use vad_rs::Vad;
 
+const WHISPER_SAMPLE_RATE: usize = 16000;
+
 #[derive(Clone, Debug)]
 pub enum RecordingState {
     Idle,
@@ -61,9 +63,9 @@ impl AudioRecordingManager {
         let sample_rate = config.sample_rate().0;
 
         // Configure the resampler - keeping 1024 as input size for FFT efficiency
-        let resampler = FftFixedIn::new(sample_rate as usize, 16000, 1024, 2, 1)?;
+        let resampler = FftFixedIn::new(sample_rate as usize, WHISPER_SAMPLE_RATE, 1024, 2, 1)?;
 
-        let vad = Arc::new(Mutex::new(Vad::new(vad_path, 16000).unwrap()));
+        let vad = Arc::new(Mutex::new(Vad::new(vad_path, WHISPER_SAMPLE_RATE).unwrap()));
         let vad_clone = Arc::clone(&vad);
 
         let state = Arc::new(Mutex::new(RecordingState::Idle));
@@ -135,9 +137,14 @@ impl AudioRecordingManager {
                             if let Ok(mut vad) = vad_clone.lock() {
                                 match vad.compute(&chunk) {
                                     Ok(result) => {
-                                        if result.prob > 0.15 {
+                                        println!("VAD PROB {}", result.prob);
+                                        if result.prob > 0.1 {
                                             let mut buffer = buffer_clone.lock().unwrap();
                                             buffer.extend_from_slice(&chunk);
+                                            println!(
+                                                "EXTENDED BUFFER. BUFFER LENGTH {}",
+                                                buffer.len()
+                                            );
                                         }
                                     }
                                     Err(error) => {
@@ -277,25 +284,21 @@ impl AudioRecordingManager {
                 println!("Stopped recording for binding {}", binding_id);
 
                 let mut buffer = self.buffer.lock().unwrap();
+                println!("READING BUFFER");
                 let audio_data: Vec<f32> = buffer.drain(..).collect();
+                println!("READ BUFFER");
 
-                // Calculate duration in milliseconds
-                // 16000 is our target sample rate after resampling
-                let duration_ms = (audio_data.len() as f32 / 16000.0) * 1000.0;
+                let samples = audio_data.len();
 
-                if duration_ms < 300.0 {
-                    // Discard the audio if it's too short
-                    Some(Vec::new())
+                println!("SAMPLE AFTER VAD {}, DURATION {}", samples, samples / 1000);
+
+                if samples < WHISPER_SAMPLE_RATE && samples > 1000 {
+                    let target_samples = WHISPER_SAMPLE_RATE * 5 / 4; // sample rate * 1.25
+                    let mut padded_audio = audio_data;
+                    padded_audio.resize(target_samples, 0.0); // Pad with silence (zeros)
+                    Some(padded_audio)
                 } else {
-                    // Pad to minimum 1000ms if needed
-                    if duration_ms < 1000.0 {
-                        let target_samples = (16000.0 * (1000.0 / 1000.0)) as usize; // 16000 samples for 1 second
-                        let mut padded_audio = audio_data;
-                        padded_audio.resize(target_samples, 0.0); // Pad with silence (zeros)
-                        Some(padded_audio)
-                    } else {
-                        Some(audio_data)
-                    }
+                    Some(audio_data)
                 }
             }
             _ => {
