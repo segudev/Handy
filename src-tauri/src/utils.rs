@@ -18,6 +18,7 @@ fn send_with_delay(event: EventType, delay_ms: u64) {
     thread::sleep(time::Duration::from_millis(delay_ms));
 }
 
+// TODO: use enigo for paste not on macos?
 fn send_paste() {
     // Determine the modifier key based on the OS
     #[cfg(target_os = "macos")]
