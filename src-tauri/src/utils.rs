@@ -103,6 +103,7 @@ pub fn play_sound(app: &AppHandle, resource_path: &str) {
 
     let app_handle = app.clone();
     let resource_path = resource_path.to_string();
+    let volume = settings.audio_feedback_volume;
 
     // Spawn a new thread to play the audio without blocking the main thread
     thread::spawn(move || {
@@ -122,7 +123,7 @@ pub fn play_sound(app: &AppHandle, resource_path: &str) {
         };
 
         // Try to play the audio file
-        if let Err(e) = play_audio_file(&audio_path) {
+        if let Err(e) = play_audio_file(&audio_path, volume) {
             eprintln!("Failed to play sound '{}': {}", resource_path, e);
         }
     });
@@ -138,7 +139,7 @@ pub fn play_recording_stop_sound(app: &AppHandle) {
     play_sound(app, "resources/rec_stop.wav");
 }
 
-fn play_audio_file(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+fn play_audio_file(path: &std::path::Path, volume: f32) -> Result<(), Box<dyn std::error::Error>> {
     // Get a output stream handle to the default physical sound device
     let (_stream, stream_handle) = OutputStream::try_default()?;
 
@@ -149,6 +150,10 @@ fn play_audio_file(path: &std::path::Path) -> Result<(), Box<dyn std::error::Err
 
     // Create a sink to play the audio
     let sink = Sink::try_new(&stream_handle)?;
+    
+    // Set the volume
+    sink.set_volume(volume);
+    
     sink.append(source);
 
     // Wait for the audio to finish playing

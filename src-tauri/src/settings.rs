@@ -18,6 +18,8 @@ pub struct AppSettings {
     pub bindings: HashMap<String, ShortcutBinding>,
     pub push_to_talk: bool,
     pub audio_feedback: bool,
+    #[serde(default = "default_audio_feedback_volume")]
+    pub audio_feedback_volume: f32,
     #[serde(default = "default_model")]
     pub selected_model: String,
     #[serde(default = "default_always_on_microphone")]
@@ -41,6 +43,11 @@ fn default_always_on_microphone() -> bool {
 fn default_translate_to_english() -> bool {
     // Default to false - users need to opt-in to translation
     false
+}
+
+fn default_audio_feedback_volume() -> f32 {
+    // Default to 20% volume
+    0.2
 }
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
@@ -82,6 +89,7 @@ pub fn get_default_settings() -> AppSettings {
         bindings,
         push_to_talk: true,
         audio_feedback: false,
+        audio_feedback_volume: 0.1,
         selected_model: "".to_string(),
         always_on_microphone: false,
         translate_to_english: false,
